@@ -39,7 +39,6 @@ export async function POST(req: NextRequest) {
       .eq('id', eventId)
       .single()
 
-    // 2b. Récupérer le nom de la catégorie si applicable
     let categoryName = ''
     if (categoryId) {
       const { data: catData } = await supabase
@@ -119,10 +118,11 @@ export async function POST(req: NextRequest) {
         .update({ status: 'paid' })
         .eq('id', order.id)
 
-      // 6. Créer UN ticket individuel par billet acheté
+      // 6. Créer les tickets (TOUS AVEC LE MÊME QR CODE : celui de la commande)
       const ticketsData: any[] = []
       for (let i = 1; i <= quantity; i++) {
-        const ticketQrCode = `TKT-${orderQrCode}-${i}`
+        // 🔧 MODIFICATION ICI : on utilise orderQrCode pour tous les tickets
+        const ticketQrCode = orderQrCode  // plus de "TKT-...-N"
         ticketsData.push({
           order_id:      order.id,
           event_id:      eventId,

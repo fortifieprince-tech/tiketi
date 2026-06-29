@@ -13,7 +13,6 @@ export async function generateTicketsPDF(tickets: any[]): Promise<Buffer> {
       y = margin
     }
 
-    // --- En-tête ---
     doc.setFontSize(22)
     doc.setTextColor('#1A2B4C')
     doc.text('TIKETI', pageWidth / 2, y, { align: 'center' })
@@ -24,12 +23,10 @@ export async function generateTicketsPDF(tickets: any[]): Promise<Buffer> {
     doc.text('Brazzaville · Congo', pageWidth / 2, y, { align: 'center' })
     y += 12
 
-    // Séparateur
     doc.setDrawColor('#E2E8F0')
     doc.line(margin, y, pageWidth - margin, y)
     y += 8
 
-    // --- Informations de l'événement ---
     doc.setFontSize(14)
     doc.setTextColor('#0F172A')
     doc.setFont('helvetica', 'bold')
@@ -44,12 +41,10 @@ export async function generateTicketsPDF(tickets: any[]): Promise<Buffer> {
     doc.text(`${ticket.eventVenue || ''}, ${ticket.eventCity || ''}`, margin, y)
     y += 10
 
-    // Séparateur
     doc.setDrawColor('#E2E8F0')
     doc.line(margin, y, pageWidth - margin, y)
     y += 8
 
-    // --- Détails du billet ---
     doc.setFontSize(10)
     doc.setTextColor('#475569')
     doc.text(`Billet ${ticket.ticketNumber || 1} / ${ticket.totalTickets || 1}`, margin, y)
@@ -62,7 +57,6 @@ export async function generateTicketsPDF(tickets: any[]): Promise<Buffer> {
     }
     y += 10
 
-    // --- QR Code ---
     if (ticket.qrCodeImage) {
       try {
         const qrImage = ticket.qrCodeImage.replace('data:image/png;base64,', '')
@@ -75,13 +69,11 @@ export async function generateTicketsPDF(tickets: any[]): Promise<Buffer> {
       }
     }
 
-    // --- Code du billet ---
     doc.setFontSize(8)
     doc.setTextColor('#94A3B8')
     doc.text(`Code: ${ticket.qrCode || ''}`, pageWidth / 2, y, { align: 'center' })
     y += 6
 
-    // --- Pied de page ---
     const footerY = pageHeight - margin - 5
     doc.setFontSize(7)
     doc.setTextColor('#CBD5E1')

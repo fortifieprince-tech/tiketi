@@ -14,16 +14,13 @@ type ScanResult = {
   eventTitle?: string
   quantity?: number
   qrCode?: string
-  ticketNumber?: number
 }
 
 export default function ScannerPage() {
-  // ── Auth PIN ──
   const [pinInput, setPinInput]   = useState('')
   const [pinError, setPinError]   = useState('')
   const [unlocked, setUnlocked]   = useState(false)
 
-  // ── Scanner ──
   const [mode, setMode]           = useState<'camera' | 'manual'>('manual')
   const [manualCode, setManualCode] = useState('')
   const [scanning, setScanning]   = useState(false)
@@ -39,7 +36,6 @@ export default function ScannerPage() {
     }
   }, [])
 
-  // ── Vérifier le PIN ──
   function handlePin(e: React.FormEvent) {
     e.preventDefault()
     const correctPin = process.env.NEXT_PUBLIC_SCANNER_PIN || '1234'
@@ -52,7 +48,6 @@ export default function ScannerPage() {
     }
   }
 
-  // ── Caméra ──
   async function startCamera() {
     try {
       const { Html5Qrcode } = await import('html5-qrcode')
@@ -81,43 +76,29 @@ export default function ScannerPage() {
     setCameraActive(false)
   }
 
-  // ── Vérifier le code (CT-... et TKT-...) ──
+  // ── Vérifier le code (UNIQUEMENT CT-... dans orders) ──
   async function checkCode(code: string) {
     setScanning(true)
     setResult(null)
 
     const cleanCode = code.trim().toUpperCase()
 
-    // 1. Chercher d'abord dans `orders` (codes CT-...)
-    const { data: order, error: orderError } = await supabase
+    const { data: order, error } = await supabase
       .from('orders')
       .select('*, events(title)')
       .eq('qr_code', cleanCode)
       .eq('status', 'paid')
       .maybeSingle()
 
-    if (order && !orderError) {
-      // Code de commande trouvé
-      if (order.used) {
-        setResult({
-          status: 'already_used',
-          firstName: order.first_name,
-          lastName: order.last_name,
-          eventTitle: order.events?.[0]?.title || 'Événement',
-          quantity: order.quantity,
-          qrCode: cleanCode,
-        })
-        setScanning(false)
-        return
-      }
+    if (error || !order) {
+      setResult({ status: 'invalid', qrCode: cleanCode })
+      setScanning(false)
+      return
+    }
 
-      await supabase
-        .from('orders')
-        .update({ used: true, used_at: new Date().toISOString() })
-        .eq('id', order.id)
-
+    if (order.used) {
       setResult({
-        status: 'valid',
+        status: 'already_used',
         firstName: order.first_name,
         lastName: order.last_name,
         eventTitle: order.events?.[0]?.title || 'Événement',
@@ -128,61 +109,19 @@ export default function ScannerPage() {
       return
     }
 
-    // 2. Sinon, chercher dans `tickets` (codes TKT-...)
-    const { data: ticket, error: ticketError } = await supabase
-      .from('tickets')
-      .select('id, used, order_id, ticket_number')
-      .eq('qr_code', cleanCode)
-      .maybeSingle()
+    await supabase
+      .from('orders')
+      .update({ used: true, used_at: new Date().toISOString() })
+      .eq('id', order.id)
 
-    if (ticket && !ticketError) {
-      // Récupérer la commande associée
-      const { data: orderData, error: orderDataError } = await supabase
-        .from('orders')
-        .select('first_name, last_name, event_id, events(title)')
-        .eq('id', ticket.order_id)
-        .single()
-
-      if (orderDataError || !orderData) {
-        setResult({ status: 'invalid', qrCode: cleanCode })
-        setScanning(false)
-        return
-      }
-
-      if (ticket.used) {
-        setResult({
-          status: 'already_used',
-          firstName: orderData.first_name,
-          lastName: orderData.last_name,
-          eventTitle: orderData.events?.[0]?.title || 'Événement',
-          quantity: 1,
-          qrCode: cleanCode,
-          ticketNumber: ticket.ticket_number,
-        })
-        setScanning(false)
-        return
-      }
-
-      await supabase
-        .from('tickets')
-        .update({ used: true, used_at: new Date().toISOString() })
-        .eq('id', ticket.id)
-
-      setResult({
-        status: 'valid',
-        firstName: orderData.first_name,
-        lastName: orderData.last_name,
-        eventTitle: orderData.events?.[0]?.title || 'Événement',
-        quantity: 1,
-        qrCode: cleanCode,
-        ticketNumber: ticket.ticket_number,
-      })
-      setScanning(false)
-      return
-    }
-
-    // 3. Aucun code trouvé
-    setResult({ status: 'invalid', qrCode: cleanCode })
+    setResult({
+      status: 'valid',
+      firstName: order.first_name,
+      lastName: order.last_name,
+      eventTitle: order.events?.[0]?.title || 'Événement',
+      quantity: order.quantity,
+      qrCode: cleanCode,
+    })
     setScanning(false)
   }
 
@@ -198,9 +137,7 @@ export default function ScannerPage() {
     setScanning(false)
   }
 
-  // ══════════════════════════════════════════
-  // ÉCRAN 1 — PAGE PIN
-  // ══════════════════════════════════════════
+  // ── ÉCRAN PIN ──
   if (!unlocked) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center px-4">
@@ -258,9 +195,7 @@ export default function ScannerPage() {
     )
   }
 
-  // ══════════════════════════════════════════
-  // ÉCRAN 2 — RÉSULTAT
-  // ══════════════════════════════════════════
+  // ── ÉCRAN RÉSULTAT ──
   if (result) {
     const isValid = result.status === 'valid'
     const isUsed  = result.status === 'already_used'
@@ -288,7 +223,6 @@ export default function ScannerPage() {
             <p className="text-white/80 text-sm mt-1">{result.eventTitle}</p>
             <div className="inline-flex items-center gap-2 bg-white/20 rounded-full px-5 py-2 mt-3 text-sm font-bold">
               🎟️ {result.quantity} billet{result.quantity && result.quantity > 1 ? 's' : ''}
-              {result.ticketNumber && ` (n°${result.ticketNumber})`}
             </div>
           </div>
         )}
@@ -314,9 +248,7 @@ export default function ScannerPage() {
     )
   }
 
-  // ══════════════════════════════════════════
-  // ÉCRAN 3 — SCANNER PRINCIPAL
-  // ══════════════════════════════════════════
+  // ── ÉCRAN PRINCIPAL ──
   return (
     <div className="min-h-screen bg-slate-900 text-white">
       <header className="bg-slate-800 border-b border-slate-700 h-16 flex items-center justify-between px-6">
