@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
       .eq('id', eventId)
       .single()
 
+    // 2b. Récupérer le nom de la catégorie si applicable
     let categoryName = ''
     if (categoryId) {
       const { data: catData } = await supabase
@@ -118,11 +119,11 @@ export async function POST(req: NextRequest) {
         .update({ status: 'paid' })
         .eq('id', order.id)
 
-      // 6. Créer les tickets (TOUS AVEC LE MÊME QR CODE : celui de la commande)
+      // 6. Créer les tickets individuels (tous avec le même QR code = orderQrCode)
       const ticketsData: any[] = []
       for (let i = 1; i <= quantity; i++) {
-        // 🔧 MODIFICATION ICI : on utilise orderQrCode pour tous les tickets
-        const ticketQrCode = orderQrCode  // plus de "TKT-...-N"
+        // 🔧 Utiliser orderQrCode pour tous les tickets
+        const ticketQrCode = orderQrCode
         ticketsData.push({
           order_id:      order.id,
           event_id:      eventId,
@@ -132,16 +133,28 @@ export async function POST(req: NextRequest) {
         })
       }
 
-      const { data: createdTickets } = await supabase
+      const { data: createdTickets, error: ticketsError } = await supabase
         .from('tickets')
         .insert(ticketsData)
         .select()
+
+      if (ticketsError) {
+        console.error('Erreur insertion tickets:', ticketsError)
+        throw new Error('Erreur lors de la création des tickets')
+      }
+
+      console.log('✅ Tickets créés :', createdTickets?.length || 0)
 
       // 7. Générer le QR code image pour chaque ticket
       const ticketsForPdf = []
       if (createdTickets) {
         for (const ticket of createdTickets) {
-          const qrImage = await generateQRCode(ticket.qr_code)
+          let qrImage = ''
+          try {
+            qrImage = await generateQRCode(ticket.qr_code)
+          } catch (qrError) {
+            console.warn('⚠️ Erreur génération QR pour', ticket.qr_code, qrError)
+          }
           ticketsForPdf.push({
             eventTitle:   eventData?.title || '',
             eventDate:    eventData?.date || '',
@@ -160,17 +173,24 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      console.log('📄 Tickets pour PDF :', ticketsForPdf.length)
+
       // 8. Générer le PDF avec tous les billets
       const pdfBuffer = await generateTicketsPDF(ticketsForPdf)
 
       // 9. Sauvegarder le PDF dans Supabase Storage
       const pdfFilename = `ticket-${orderQrCode}.pdf`
-      await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('events')
         .upload(`tickets/${pdfFilename}`, pdfBuffer, {
           contentType: 'application/pdf',
           upsert: true,
         })
+
+      if (uploadError) {
+        console.error('Erreur upload PDF:', uploadError)
+        throw new Error('Erreur lors de la sauvegarde du PDF')
+      }
 
       const pdfUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/events/tickets/${pdfFilename}`
 

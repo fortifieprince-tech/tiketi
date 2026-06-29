@@ -1,9 +1,9 @@
 import { jsPDF } from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
 export async function generateTicketsPDF(tickets: any[]): Promise<Buffer> {
   const doc = new jsPDF('p', 'mm', 'a4')
   const pageWidth = 210
-  const pageHeight = 297
   const margin = 15
   let y = margin
 
@@ -13,6 +13,7 @@ export async function generateTicketsPDF(tickets: any[]): Promise<Buffer> {
       y = margin
     }
 
+    // --- En-tête ---
     doc.setFontSize(22)
     doc.setTextColor('#1A2B4C')
     doc.text('TIKETI', pageWidth / 2, y, { align: 'center' })
@@ -27,6 +28,7 @@ export async function generateTicketsPDF(tickets: any[]): Promise<Buffer> {
     doc.line(margin, y, pageWidth - margin, y)
     y += 8
 
+    // --- Informations de l'événement ---
     doc.setFontSize(14)
     doc.setTextColor('#0F172A')
     doc.setFont('helvetica', 'bold')
@@ -45,6 +47,7 @@ export async function generateTicketsPDF(tickets: any[]): Promise<Buffer> {
     doc.line(margin, y, pageWidth - margin, y)
     y += 8
 
+    // --- Détails du billet ---
     doc.setFontSize(10)
     doc.setTextColor('#475569')
     doc.text(`Billet ${ticket.ticketNumber || 1} / ${ticket.totalTickets || 1}`, margin, y)
@@ -57,6 +60,7 @@ export async function generateTicketsPDF(tickets: any[]): Promise<Buffer> {
     }
     y += 10
 
+    // --- QR Code (avec fallback) ---
     if (ticket.qrCodeImage) {
       try {
         const qrImage = ticket.qrCodeImage.replace('data:image/png;base64,', '')
@@ -65,16 +69,29 @@ export async function generateTicketsPDF(tickets: any[]): Promise<Buffer> {
         doc.addImage(qrImage, 'PNG', qrX, y, qrSize, qrSize)
         y += qrSize + 4
       } catch (e) {
-        console.warn('QR Code non disponible')
+        console.warn('⚠️ QR Code non disponible pour ce ticket')
+        // Fallback : afficher le code en texte
+        doc.setFontSize(10)
+        doc.setTextColor('#94A3B8')
+        doc.text(`QR: ${ticket.qrCode || ''}`, pageWidth / 2, y + 10, { align: 'center' })
+        y += 16
       }
+    } else {
+      // Pas d'image QR → afficher le code en texte
+      doc.setFontSize(10)
+      doc.setTextColor('#94A3B8')
+      doc.text(`Code: ${ticket.qrCode || ''}`, pageWidth / 2, y + 10, { align: 'center' })
+      y += 16
     }
 
+    // --- Code du billet (en bas) ---
     doc.setFontSize(8)
     doc.setTextColor('#94A3B8')
     doc.text(`Code: ${ticket.qrCode || ''}`, pageWidth / 2, y, { align: 'center' })
     y += 6
 
-    const footerY = pageHeight - margin - 5
+    // --- Pied de page ---
+    const footerY = 285
     doc.setFontSize(7)
     doc.setTextColor('#CBD5E1')
     doc.text('Ce billet est nominatif et non transférable.', pageWidth / 2, footerY, { align: 'center' })
