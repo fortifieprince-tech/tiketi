@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import Link from 'next/link'
 import {
   Ticket, QrCode, Keyboard,
   CheckCircle2, XCircle, RefreshCw, Lock,
@@ -15,6 +14,7 @@ type ScanResult = {
   eventTitle?: string
   quantity?: number
   qrCode?: string
+  ticketNumber?: number
 }
 
 export default function ScannerPage() {
@@ -42,7 +42,7 @@ export default function ScannerPage() {
   // ── Vérifier le PIN ──
   function handlePin(e: React.FormEvent) {
     e.preventDefault()
-    const correctPin = process.env.NEXT_PUBLIC_SCANNER_PIN
+    const correctPin = process.env.NEXT_PUBLIC_SCANNER_PIN || '1234'
     if (pinInput === correctPin) {
       setUnlocked(true)
       setPinError('')
@@ -81,53 +81,108 @@ export default function ScannerPage() {
     setCameraActive(false)
   }
 
-  // ── Vérifier le code dans Supabase ──
+  // ── Vérifier le code (CT-... et TKT-...) ──
   async function checkCode(code: string) {
     setScanning(true)
     setResult(null)
 
     const cleanCode = code.trim().toUpperCase()
 
-    const { data: order, error } = await supabase
+    // 1. Chercher d'abord dans `orders` (codes CT-...)
+    const { data: order, error: orderError } = await supabase
       .from('orders')
       .select('*, events(title)')
       .eq('qr_code', cleanCode)
       .eq('status', 'paid')
-      .single()
+      .maybeSingle()
 
-    if (error || !order) {
-      setResult({ status: 'invalid', qrCode: cleanCode })
-      setScanning(false)
-      return
-    }
+    if (order && !orderError) {
+      // Code de commande trouvé
+      if (order.used) {
+        setResult({
+          status: 'already_used',
+          firstName: order.first_name,
+          lastName: order.last_name,
+          eventTitle: order.events?.[0]?.title || 'Événement',
+          quantity: order.quantity,
+          qrCode: cleanCode,
+        })
+        setScanning(false)
+        return
+      }
 
-    if (order.used) {
+      await supabase
+        .from('orders')
+        .update({ used: true, used_at: new Date().toISOString() })
+        .eq('id', order.id)
+
       setResult({
-        status:     'already_used',
-        firstName:  order.first_name,
-        lastName:   order.last_name,
-        eventTitle: order.events?.title,
-        quantity:   order.quantity,
-        qrCode:     cleanCode,
+        status: 'valid',
+        firstName: order.first_name,
+        lastName: order.last_name,
+        eventTitle: order.events?.[0]?.title || 'Événement',
+        quantity: order.quantity,
+        qrCode: cleanCode,
       })
       setScanning(false)
       return
     }
 
-    // Marquer comme utilisé
-    await supabase
-      .from('orders')
-      .update({ used: true, used_at: new Date().toISOString() })
-      .eq('id', order.id)
+    // 2. Sinon, chercher dans `tickets` (codes TKT-...)
+    const { data: ticket, error: ticketError } = await supabase
+      .from('tickets')
+      .select('id, used, order_id, ticket_number')
+      .eq('qr_code', cleanCode)
+      .maybeSingle()
 
-    setResult({
-      status:     'valid',
-      firstName:  order.first_name,
-      lastName:   order.last_name,
-      eventTitle: order.events?.title,
-      quantity:   order.quantity,
-      qrCode:     cleanCode,
-    })
+    if (ticket && !ticketError) {
+      // Récupérer la commande associée
+      const { data: orderData, error: orderDataError } = await supabase
+        .from('orders')
+        .select('first_name, last_name, event_id, events(title)')
+        .eq('id', ticket.order_id)
+        .single()
+
+      if (orderDataError || !orderData) {
+        setResult({ status: 'invalid', qrCode: cleanCode })
+        setScanning(false)
+        return
+      }
+
+      if (ticket.used) {
+        setResult({
+          status: 'already_used',
+          firstName: orderData.first_name,
+          lastName: orderData.last_name,
+          eventTitle: orderData.events?.[0]?.title || 'Événement',
+          quantity: 1,
+          qrCode: cleanCode,
+          ticketNumber: ticket.ticket_number,
+        })
+        setScanning(false)
+        return
+      }
+
+      await supabase
+        .from('tickets')
+        .update({ used: true, used_at: new Date().toISOString() })
+        .eq('id', ticket.id)
+
+      setResult({
+        status: 'valid',
+        firstName: orderData.first_name,
+        lastName: orderData.last_name,
+        eventTitle: orderData.events?.[0]?.title || 'Événement',
+        quantity: 1,
+        qrCode: cleanCode,
+        ticketNumber: ticket.ticket_number,
+      })
+      setScanning(false)
+      return
+    }
+
+    // 3. Aucun code trouvé
+    setResult({ status: 'invalid', qrCode: cleanCode })
     setScanning(false)
   }
 
@@ -144,14 +199,12 @@ export default function ScannerPage() {
   }
 
   // ══════════════════════════════════════════
-  // ÉCRAN 1 — PAGE PIN (gardien non connecté)
+  // ÉCRAN 1 — PAGE PIN
   // ══════════════════════════════════════════
   if (!unlocked) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center px-4">
         <div className="w-full max-w-sm">
-
-          {/* Logo */}
           <div className="text-center mb-8">
             <div className="w-16 h-16 bg-brand-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <Lock className="w-8 h-8 text-white" />
@@ -166,7 +219,6 @@ export default function ScannerPage() {
             </p>
           </div>
 
-          {/* Formulaire PIN */}
           <form onSubmit={handlePin} className="space-y-4">
             <div>
               <input
@@ -180,7 +232,6 @@ export default function ScannerPage() {
               />
             </div>
 
-            {/* Erreur */}
             {pinError && (
               <div className="flex items-center gap-2 bg-red-900/30 border border-red-700 text-red-400 text-xs rounded-xl px-4 py-3">
                 <XCircle className="w-4 h-4 flex-shrink-0" />
@@ -197,10 +248,9 @@ export default function ScannerPage() {
             </button>
           </form>
 
-          {/* Info */}
           <div className="mt-8 bg-slate-800 rounded-2xl p-4 border border-slate-700 text-center">
             <p className="text-xs text-slate-400 leading-relaxed">
-              Ce code vous a été communiqué par l'organisateur de l'événement. Contactez-le si vous ne l'avez pas.
+              Ce code vous a été communiqué par l'organisateur. Contactez-le si vous ne l'avez pas.
             </p>
           </div>
         </div>
@@ -209,7 +259,7 @@ export default function ScannerPage() {
   }
 
   // ══════════════════════════════════════════
-  // ÉCRAN 2 — RÉSULTAT SCAN (plein écran)
+  // ÉCRAN 2 — RÉSULTAT
   // ══════════════════════════════════════════
   if (result) {
     const isValid = result.status === 'valid'
@@ -237,7 +287,8 @@ export default function ScannerPage() {
             </p>
             <p className="text-white/80 text-sm mt-1">{result.eventTitle}</p>
             <div className="inline-flex items-center gap-2 bg-white/20 rounded-full px-5 py-2 mt-3 text-sm font-bold">
-              🎟️ {result.quantity} billet{(result.quantity ?? 0) > 1 ? 's' : ''}
+              🎟️ {result.quantity} billet{result.quantity && result.quantity > 1 ? 's' : ''}
+              {result.ticketNumber && ` (n°${result.ticketNumber})`}
             </div>
           </div>
         )}
@@ -268,8 +319,6 @@ export default function ScannerPage() {
   // ══════════════════════════════════════════
   return (
     <div className="min-h-screen bg-slate-900 text-white">
-
-      {/* Header */}
       <header className="bg-slate-800 border-b border-slate-700 h-16 flex items-center justify-between px-6">
         <div className="flex items-center gap-2 font-bold text-lg text-white">
           <Ticket className="w-5 h-5 text-brand-400" />
@@ -280,7 +329,6 @@ export default function ScannerPage() {
             <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             Scanner actif
           </div>
-          {/* Bouton déconnexion gardien */}
           <button
             onClick={() => { setUnlocked(false); setPinInput('') }}
             className="text-xs text-slate-500 hover:text-red-400 transition-colors font-semibold"
@@ -291,8 +339,6 @@ export default function ScannerPage() {
       </header>
 
       <div className="max-w-sm mx-auto px-4 py-8">
-
-        {/* Titre */}
         <div className="text-center mb-8">
           <div className="w-16 h-16 bg-brand-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <QrCode className="w-8 h-8 text-white" />
@@ -301,7 +347,6 @@ export default function ScannerPage() {
           <p className="text-slate-400 text-sm mt-1">Vérifiez les billets à l'entrée</p>
         </div>
 
-        {/* Toggle mode */}
         <div className="flex gap-1 bg-slate-800 p-1 rounded-xl mb-6">
           <button
             onClick={() => { setMode('camera'); stopCamera() }}
@@ -321,7 +366,6 @@ export default function ScannerPage() {
           </button>
         </div>
 
-        {/* Mode Caméra */}
         {mode === 'camera' && (
           <div className="space-y-4">
             <div className="relative bg-slate-800 rounded-2xl overflow-hidden aspect-square">
@@ -353,7 +397,6 @@ export default function ScannerPage() {
           </div>
         )}
 
-        {/* Mode Manuel */}
         {mode === 'manual' && (
           <form onSubmit={handleManualSubmit} className="space-y-4">
             <div>
@@ -391,11 +434,8 @@ export default function ScannerPage() {
           </form>
         )}
 
-        {/* Guide */}
         <div className="mt-8 bg-slate-800 rounded-2xl p-4 border border-slate-700">
-          <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
-            Guide
-          </div>
+          <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Guide</div>
           <div className="space-y-2">
             {[
               { icon: '🟢', text: 'Écran vert → billet valide, laissez passer' },
