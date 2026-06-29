@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft, Calendar, MapPin, Users, Clock,
   Minus, Plus, CheckCircle2, ShieldCheck, Smartphone,
@@ -10,7 +10,6 @@ import {
 import Navbar from '@/components/Navbar'
 import { supabase, DBEvent, DBTicketCategory } from '@/lib/supabase'
 
-// Formateur stable pour l'hydratation
 const numberFormat = new Intl.NumberFormat('fr-FR')
 const dateFormat = new Intl.DateTimeFormat('fr-FR', {
   day: '2-digit',
@@ -21,6 +20,7 @@ const dateFormat = new Intl.DateTimeFormat('fr-FR', {
 
 export default function EventDetailPage() {
   const params = useParams()
+  const router = useRouter()
   const id = params.id as string
 
   const [event, setEvent]           = useState<DBEvent | null>(null)
@@ -29,9 +29,6 @@ export default function EventDetailPage() {
   const [loading, setLoading]       = useState(true)
   const [qty, setQty]               = useState(1)
   const [submitting, setSubmitting] = useState(false)
-  const [submitted, setSubmitted]   = useState(false)
-  const [qrCode, setQrCode]         = useState('')
-  const [pdfUrl, setPdfUrl]         = useState('')
   const [error, setError]           = useState('')
   const [phone, setPhone]           = useState('')
   const [operator, setOperator]     = useState<'mtn' | 'airtel'>('mtn')
@@ -76,7 +73,6 @@ export default function EventDetailPage() {
     load()
   }, [id])
 
-  // Calcul de la capacité totale (somme des catégories ou capacité de l'événement)
   const totalCapacity = categories.length > 0
     ? categories.reduce((sum, c) => sum + c.capacity, 0)
     : (event?.capacity || 0)
@@ -111,9 +107,8 @@ export default function EventDetailPage() {
       const data = await res.json()
 
       if (data.success) {
-        setQrCode(data.qrCode)
-        setPdfUrl(data.pdfUrl)
-        setSubmitted(true)
+        // Rediriger vers la page de succès avec les paramètres
+        router.push(`/payment/success?qr=${data.qrCode}&pdf=${data.pdfUrl}&order=${data.orderId}`)
       } else {
         setError(data.error || 'Une erreur est survenue.')
       }
@@ -212,7 +207,7 @@ export default function EventDetailPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
-          {/* Colonne de gauche : description et informations */}
+          {/* Colonne de gauche */}
           <div className="lg:col-span-2 space-y-6">
             <div className="card p-6">
               <h2 className="font-bold text-slate-900 text-base mb-3">À propos de cet événement</h2>
@@ -225,7 +220,6 @@ export default function EventDetailPage() {
                   { icon: Calendar, label: 'Date',     value: event.date },
                   { icon: Clock,    label: 'Heure',    value: event.time },
                   { icon: MapPin,   label: 'Lieu',     value: `${event.venue}, ${event.city}` },
-                  // Utilisation de totalCapacity au lieu de event.capacity
                   { icon: Users,    label: 'Capacité', value: `${totalCapacity.toLocaleString('fr-FR')} personnes` },
                 ].map(({ icon: Icon, label, value }) => (
                   <div key={label} className="flex items-start gap-3">
@@ -255,292 +249,245 @@ export default function EventDetailPage() {
             </div>
           </div>
 
-          {/* Colonne de droite : formulaire de réservation */}
+          {/* Colonne de droite : formulaire */}
           <div className="lg:col-span-1">
             <div className="card p-6 sticky top-24">
-
-              {submitted ? (
-                <div className="text-center py-4">
-                  <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <CheckCircle2 className="w-8 h-8 text-emerald-500" />
+              {categories.length > 0 && (
+                <div className="mb-5">
+                  <label className="block text-xs font-semibold text-slate-700 mb-2">
+                    Choisissez votre catégorie
+                  </label>
+                  <div className="space-y-2">
+                    {categories.map(cat => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setSelectedCategory(cat)}
+                        className={`w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all ${
+                          selectedCategory?.id === cat.id
+                            ? 'border-brand-600 bg-brand-50'
+                            : 'border-slate-200 bg-white hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="text-left">
+                          <div className="text-sm font-bold text-slate-900">{cat.name}</div>
+                          <div className="text-xs text-slate-400">{cat.capacity - cat.sold} places restantes</div>
+                        </div>
+                        <div className="text-sm font-extrabold text-brand-600">
+                          {numberFormat.format(cat.price)} XAF
+                        </div>
+                      </button>
+                    ))}
                   </div>
-                  <h3 className="font-extrabold text-slate-900 text-lg mb-1">Paiement confirmé ! 🎉</h3>
-                  <p className="text-sm text-slate-500 mb-5">
-                    Vos billets sont prêts. Téléchargez-les ou consultez votre email.
-                  </p>
+                </div>
+              )}
 
-                  <div className="border-2 border-dashed border-brand-200 bg-brand-50 rounded-xl p-6 mb-4">
-                    <div className="text-5xl mb-3">📄</div>
-                    <div className="font-mono text-brand-700 font-bold text-sm tracking-widest mb-1">
-                      {qrCode}
-                    </div>
-                    <div className="text-xs text-slate-400">
-                      {qty} billet{qty > 1 ? 's' : ''} · {event.title}
-                    </div>
+              <div className="flex items-baseline justify-between mb-5">
+                <div>
+                  <div className="text-xs text-slate-400 font-medium mb-0.5">
+                    Prix {selectedCategory ? `(${selectedCategory.name})` : 'par billet'}
                   </div>
+                  <div className="text-2xl font-extrabold text-brand-600">
+                    {activePrice === 0 ? 'Gratuit' : numberFormat.format(activePrice) + ' XAF'}
+                  </div>
+                </div>
+                {remaining < 50 && (
+                  <div className="bg-red-50 text-red-600 text-xs font-bold px-2.5 py-1 rounded-full border border-red-100">
+                    {remaining} restants !
+                  </div>
+                )}
+              </div>
 
-                  {pdfUrl && (
-                    <a
-                      href={pdfUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn-primary w-full mb-3"
+              {activePrice > 0 && (
+                <div className="mb-5">
+                  <label className="block text-xs font-semibold text-slate-700 mb-2">
+                    Nombre de billets
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setQty(q => Math.max(1, q - 1))}
+                      disabled={qty <= 1}
+                      className="w-9 h-9 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center transition-colors disabled:opacity-40"
                     >
-                      📥 Télécharger mes billets PDF
-                    </a>
-                  )}
-
-                  <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 mb-5 text-xs text-amber-700 font-medium">
-                    📧 Vos billets ont aussi été envoyés par email.
+                      <Minus className="w-4 h-4 text-slate-600" />
+                    </button>
+                    <span className="w-10 text-center font-extrabold text-slate-900 text-lg">{qty}</span>
+                    <button
+                      onClick={() => setQty(q => Math.min(remaining, q + 1))}
+                      disabled={qty >= remaining}
+                      className="w-9 h-9 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center transition-colors disabled:opacity-40"
+                    >
+                      <Plus className="w-4 h-4 text-slate-600" />
+                    </button>
+                    <div className="flex-1 text-right">
+                      <div className="text-xs text-slate-400">Total</div>
+                      <div className="font-extrabold text-slate-900 text-base">
+                        {numberFormat.format(total)} XAF
+                      </div>
+                    </div>
                   </div>
+                </div>
+              )}
 
-                  <Link href="/" className="btn-ghost w-full text-xs">
-                    Retour aux événements
-                  </Link>
+              <form onSubmit={handleSubmit} className="space-y-3">
+                {error && (
+                  <div className="bg-red-50 border border-red-100 text-red-600 text-xs rounded-xl p-3">
+                    {error}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Prénom *</label>
+                  <input
+                    name="firstName"
+                    value={form.firstName}
+                    onChange={handleChange}
+                    placeholder="Jean-Pierre"
+                    required
+                    className="input-field"
+                  />
                 </div>
 
-              ) : (
-                <>
-                  {/* Sélecteur de catégorie VIP */}
-                  {categories.length > 0 && (
-                    <div className="mb-5">
-                      <label className="block text-xs font-semibold text-slate-700 mb-2">
-                        Choisissez votre catégorie
-                      </label>
-                      <div className="space-y-2">
-                        {categories.map(cat => (
-                          <button
-                            key={cat.id}
-                            type="button"
-                            onClick={() => setSelectedCategory(cat)}
-                            className={`w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all ${
-                              selectedCategory?.id === cat.id
-                                ? 'border-brand-600 bg-brand-50'
-                                : 'border-slate-200 bg-white hover:border-slate-300'
-                            }`}
-                          >
-                            <div className="text-left">
-                              <div className="text-sm font-bold text-slate-900">{cat.name}</div>
-                              <div className="text-xs text-slate-400">{cat.capacity - cat.sold} places restantes</div>
-                            </div>
-                            <div className="text-sm font-extrabold text-brand-600">
-                              {numberFormat.format(cat.price)} XAF
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Nom *</label>
+                  <input
+                    name="lastName"
+                    value={form.lastName}
+                    onChange={handleChange}
+                    placeholder="Moukouri"
+                    required
+                    className="input-field"
+                  />
+                </div>
 
-                  <div className="flex items-baseline justify-between mb-5">
-                    <div>
-                      <div className="text-xs text-slate-400 font-medium mb-0.5">
-                        Prix {selectedCategory ? `(${selectedCategory.name})` : 'par billet'}
-                      </div>
-                      <div className="text-2xl font-extrabold text-brand-600">
-                        {activePrice === 0 ? 'Gratuit' : numberFormat.format(activePrice) + ' XAF'}
-                      </div>
-                    </div>
-                    {remaining < 50 && (
-                      <div className="bg-red-50 text-red-600 text-xs font-bold px-2.5 py-1 rounded-full border border-red-100">
-                        {remaining} restants !
-                      </div>
-                    )}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    <span className="flex items-center gap-1">
+                      <Smartphone className="w-3 h-3" /> WhatsApp *
+                    </span>
+                  </label>
+                  <input
+                    name="whatsapp"
+                    value={form.whatsapp}
+                    onChange={handleChange}
+                    placeholder="+242 06 000 0000"
+                    required
+                    className="input-field"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Email <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    name="email"
+                    type="email"
+                    value={form.email}
+                    onChange={handleChange}
+                    placeholder="jean@exemple.com"
+                    required
+                    className="input-field"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">
+                    Votre billet PDF sera envoyé à cette adresse
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-2">
+                    Opérateur Mobile Money *
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: 'mtn',    label: 'MTN Money',    color: 'border-amber-400 bg-amber-50 text-amber-700' },
+                      { value: 'airtel', label: 'Airtel Money', color: 'border-red-400 bg-red-50 text-red-700' },
+                    ].map(op => (
+                      <button
+                        key={op.value}
+                        type="button"
+                        onClick={() => setOperator(op.value as 'mtn' | 'airtel')}
+                        className={`py-2.5 rounded-xl border-2 text-xs font-bold transition-all ${
+                          operator === op.value ? op.color : 'border-slate-200 bg-white text-slate-500'
+                        }`}
+                      >
+                        {op.label}
+                      </button>
+                    ))}
                   </div>
+                </div>
 
-                  {activePrice > 0 && (
-                    <div className="mb-5">
-                      <label className="block text-xs font-semibold text-slate-700 mb-2">
-                        Nombre de billets
-                      </label>
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => setQty(q => Math.max(1, q - 1))}
-                          disabled={qty <= 1}
-                          className="w-9 h-9 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center transition-colors disabled:opacity-40"
-                        >
-                          <Minus className="w-4 h-4 text-slate-600" />
-                        </button>
-                        <span className="w-10 text-center font-extrabold text-slate-900 text-lg">{qty}</span>
-                        <button
-                          onClick={() => setQty(q => Math.min(remaining, q + 1))}
-                          disabled={qty >= remaining}
-                          className="w-9 h-9 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center transition-colors disabled:opacity-40"
-                        >
-                          <Plus className="w-4 h-4 text-slate-600" />
-                        </button>
-                        <div className="flex-1 text-right">
-                          <div className="text-xs text-slate-400">Total</div>
-                          <div className="font-extrabold text-slate-900 text-base">
-                            {numberFormat.format(total)} XAF
-                          </div>
-                        </div>
-                      </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Numéro {operator === 'mtn' ? 'MTN' : 'Airtel'} Money *
+                  </label>
+                  <input
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                    placeholder="242066000000"
+                    required
+                    className="input-field"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Format : 242 suivi du numéro</p>
+                </div>
+
+                {activePrice > 0 && (
+                  <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                    <div className="flex justify-between text-xs text-slate-500 mb-1">
+                      <span>{qty} × {numberFormat.format(activePrice)} XAF</span>
+                      <span>Sous-total</span>
                     </div>
-                  )}
-
-                  <form onSubmit={handleSubmit} className="space-y-3">
-
-                    {error && (
-                      <div className="bg-red-50 border border-red-100 text-red-600 text-xs rounded-xl p-3">
-                        {error}
-                      </div>
-                    )}
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">Prénom *</label>
-                      <input
-                        name="firstName"
-                        value={form.firstName}
-                        onChange={handleChange}
-                        placeholder="Jean-Pierre"
-                        required
-                        className="input-field"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">Nom *</label>
-                      <input
-                        name="lastName"
-                        value={form.lastName}
-                        onChange={handleChange}
-                        placeholder="Moukouri"
-                        required
-                        className="input-field"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                        <span className="flex items-center gap-1">
-                          <Smartphone className="w-3 h-3" /> WhatsApp *
-                        </span>
-                      </label>
-                      <input
-                        name="whatsapp"
-                        value={form.whatsapp}
-                        onChange={handleChange}
-                        placeholder="+242 06 000 0000"
-                        required
-                        className="input-field"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                        Email <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        name="email"
-                        type="email"
-                        value={form.email}
-                        onChange={handleChange}
-                        placeholder="jean@exemple.com"
-                        required
-                        className="input-field"
-                      />
-                      <p className="text-xs text-slate-400 mt-1">
-                        Votre billet PDF sera envoyé à cette adresse
-                      </p>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-2">
-                        Opérateur Mobile Money *
-                      </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { value: 'mtn',    label: 'MTN Money',    color: 'border-amber-400 bg-amber-50 text-amber-700' },
-                          { value: 'airtel', label: 'Airtel Money', color: 'border-red-400 bg-red-50 text-red-700' },
-                        ].map(op => (
-                          <button
-                            key={op.value}
-                            type="button"
-                            onClick={() => setOperator(op.value as 'mtn' | 'airtel')}
-                            className={`py-2.5 rounded-xl border-2 text-xs font-bold transition-all ${
-                              operator === op.value ? op.color : 'border-slate-200 bg-white text-slate-500'
-                            }`}
-                          >
-                            {op.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                        Numéro {operator === 'mtn' ? 'MTN' : 'Airtel'} Money *
-                      </label>
-                      <input
-                        value={phone}
-                        onChange={e => setPhone(e.target.value)}
-                        placeholder="242066000000"
-                        required
-                        className="input-field"
-                      />
-                      <p className="text-xs text-slate-400 mt-1">Format : 242 suivi du numéro</p>
-                    </div>
-
-                    {activePrice > 0 && (
-                      <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
-                        <div className="flex justify-between text-xs text-slate-500 mb-1">
-                          <span>{qty} × {numberFormat.format(activePrice)} XAF</span>
-                          <span>Sous-total</span>
-                        </div>
-                        <div className="flex justify-between font-extrabold text-slate-900 text-sm">
-                          <span>Total à payer</span>
-                          <span className="text-brand-600">{numberFormat.format(total)} XAF</span>
-                        </div>
-                      </div>
-                    )}
-
-                    <button
-                      type="submit"
-                      disabled={submitting}
-                      className="btn-success w-full mt-1 disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      {submitting ? (
-                        <span className="flex items-center gap-2 justify-center">
-                          <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31" strokeDashoffset="10" />
-                          </svg>
-                          Traitement du paiement…
-                        </span>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="w-4 h-4" />
-                          {activePrice === 0
-                            ? 'Réserver gratuitement'
-                            : `Payer ${numberFormat.format(total)} XAF`
-                          }
-                        </>
-                      )}
-                    </button>
-                  </form>
-
-                  <div className="mt-4 pt-4 border-t border-slate-100">
-                    <div className="text-xs text-slate-400 text-center mb-3 font-medium">
-                      Moyens de paiement acceptés
-                    </div>
-                    <div className="flex items-center justify-center gap-2 flex-wrap">
-                      {[
-                        { label: 'MTN Money',    color: 'text-amber-700 bg-amber-50 border-amber-100' },
-                        { label: 'Airtel Money', color: 'text-red-700 bg-red-50 border-red-100' },
-                        { label: 'Visa',         color: 'text-blue-700 bg-blue-50 border-blue-100' },
-                      ].map(p => (
-                        <div key={p.label} className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-bold ${p.color}`}>
-                          <ShieldCheck className="w-3 h-3" />{p.label}
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex items-center justify-center gap-1 mt-3 text-xs text-slate-400">
-                      <ShieldCheck className="w-3 h-3 text-emerald-500" />
-                      Paiement 100% sécurisé via Yabetoopay
+                    <div className="flex justify-between font-extrabold text-slate-900 text-sm">
+                      <span>Total à payer</span>
+                      <span className="text-brand-600">{numberFormat.format(total)} XAF</span>
                     </div>
                   </div>
-                </>
-              )}
+                )}
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="btn-success w-full mt-1 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {submitting ? (
+                    <span className="flex items-center gap-2 justify-center">
+                      <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31" strokeDashoffset="10" />
+                      </svg>
+                      Traitement du paiement…
+                    </span>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      {activePrice === 0
+                        ? 'Réserver gratuitement'
+                        : `Payer ${numberFormat.format(total)} XAF`
+                      }
+                    </>
+                  )}
+                </button>
+              </form>
+
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <div className="text-xs text-slate-400 text-center mb-3 font-medium">
+                  Moyens de paiement acceptés
+                </div>
+                <div className="flex items-center justify-center gap-2 flex-wrap">
+                  {[
+                    { label: 'MTN Money',    color: 'text-amber-700 bg-amber-50 border-amber-100' },
+                    { label: 'Airtel Money', color: 'text-red-700 bg-red-50 border-red-100' },
+                    { label: 'Visa',         color: 'text-blue-700 bg-blue-50 border-blue-100' },
+                  ].map(p => (
+                    <div key={p.label} className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-bold ${p.color}`}>
+                      <ShieldCheck className="w-3 h-3" />{p.label}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-center gap-1 mt-3 text-xs text-slate-400">
+                  <ShieldCheck className="w-3 h-3 text-emerald-500" />
+                  Paiement 100% sécurisé via Yabetoopay
+                </div>
+              </div>
             </div>
           </div>
 
