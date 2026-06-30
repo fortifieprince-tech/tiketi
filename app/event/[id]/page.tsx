@@ -107,7 +107,6 @@ export default function EventDetailPage() {
       const data = await res.json()
 
       if (data.success) {
-        // Rediriger vers la page de succès avec les paramètres
         router.push(`/payment/success?qr=${data.qrCode}&pdf=${data.pdfUrl}&order=${data.orderId}`)
       } else {
         setError(data.error || 'Une erreur est survenue.')
@@ -171,7 +170,7 @@ export default function EventDetailPage() {
     <div className="min-h-screen bg-slate-50">
       <Navbar />
 
-      {/* Bannière avec image d'arrière-plan ou gradient */}
+      {/* ── Bannière avec image si disponible, sinon dégradé ── */}
       <div
         className={`relative h-52 sm:h-72 overflow-hidden ${!event.image_url ? `bg-gradient-to-br ${event.gradient}` : ''}`}
         style={
