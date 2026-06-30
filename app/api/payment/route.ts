@@ -119,11 +119,10 @@ export async function POST(req: NextRequest) {
         .update({ status: 'paid' })
         .eq('id', order.id)
 
-      // 6. Créer les tickets individuels (tous avec le même QR code = orderQrCode)
+      // 6. Créer les tickets individuels (un QR code unique par ticket)
       const ticketsData: any[] = []
       for (let i = 1; i <= quantity; i++) {
-        // 🔧 Utiliser orderQrCode pour tous les tickets
-        const ticketQrCode = orderQrCode
+        const ticketQrCode = quantity === 1 ? orderQrCode : `${orderQrCode}-${i}`
         ticketsData.push({
           order_id:      order.id,
           event_id:      eventId,
