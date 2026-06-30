@@ -171,14 +171,28 @@ export default function EventDetailPage() {
     <div className="min-h-screen bg-slate-50">
       <Navbar />
 
-      <div className={`relative h-52 sm:h-72 bg-gradient-to-br ${event.gradient} overflow-hidden`}>
-        <div
-          className="absolute inset-0 opacity-30"
-          style={{
-            backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.2) 1px, transparent 1px)',
-            backgroundSize: '24px 24px',
-          }}
-        />
+      {/* Bannière avec image d'arrière-plan ou gradient */}
+      <div
+        className={`relative h-52 sm:h-72 overflow-hidden ${!event.image_url ? `bg-gradient-to-br ${event.gradient}` : ''}`}
+        style={
+          event.image_url
+            ? {
+                backgroundImage: `url(${event.image_url})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              }
+            : undefined
+        }
+      >
+        {!event.image_url && (
+          <div
+            className="absolute inset-0 opacity-30"
+            style={{
+              backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.2) 1px, transparent 1px)',
+              backgroundSize: '24px 24px',
+            }}
+          />
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
         <Link
           href="/"
