@@ -11,6 +11,33 @@ export async function POST(req: NextRequest) {
       quantity, totalPrice, phone, operator,
     } = body
 
+    // ─────────────────────────────────────────────
+    // 0. PROTECTION ANTI-DOUBLON
+    // Vérifie si une commande identique a été créée
+    // dans les 60 dernières secondes par le même client
+    // ─────────────────────────────────────────────
+    const sixtySecondsAgo = new Date(Date.now() - 60 * 1000).toISOString()
+
+    const { data: recentDuplicate } = await supabase
+      .from('orders')
+      .select('id, created_at')
+      .eq('event_id', eventId)
+      .eq('whatsapp', whatsapp)
+      .eq('quantity', quantity)
+      .eq('total_price', totalPrice)
+      .gte('created_at', sixtySecondsAgo)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (recentDuplicate) {
+      console.warn('⚠️ Doublon détecté, requête bloquée:', recentDuplicate.id)
+      return NextResponse.json(
+        { error: 'Une commande identique a déjà été enregistrée il y a quelques secondes. Vérifiez votre email ou contactez le support avant de réessayer.' },
+        { status: 429 }
+      )
+    }
+
     // 1. Créer la commande en "pending"
     const orderQrCode = 'CT-' + Math.random().toString(36).substring(2, 10).toUpperCase()
     const { data: order, error: orderError } = await supabase
@@ -142,8 +169,6 @@ export async function POST(req: NextRequest) {
         throw new Error('Erreur lors de la création des tickets')
       }
 
-      console.log('✅ Tickets créés :', createdTickets?.length || 0)
-
       // 7. Générer le QR code image pour chaque ticket
       const ticketsForPdf = []
       if (createdTickets) {
@@ -171,8 +196,6 @@ export async function POST(req: NextRequest) {
           })
         }
       }
-
-      console.log('📄 Tickets pour PDF :', ticketsForPdf.length)
 
       // 8. Générer le PDF avec tous les billets
       const pdfBuffer = await generateTicketsPDF(ticketsForPdf)
