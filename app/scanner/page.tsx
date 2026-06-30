@@ -76,33 +76,43 @@ export default function ScannerPage() {
     setCameraActive(false)
   }
 
-  // ── Vérifier le code (UNIQUEMENT CT-... dans orders) ──
+  // ── Vérifier le code (via la table tickets) ──
   async function checkCode(code: string) {
     setScanning(true)
     setResult(null)
 
     const cleanCode = code.trim().toUpperCase()
 
-    const { data: order, error } = await supabase
-      .from('orders')
-      .select('*, events(title)')
+    const { data: ticket, error } = await supabase
+      .from('tickets')
+      .select(`
+        *,
+        orders (
+          first_name,
+          last_name,
+          status,
+          quantity
+        ),
+        events (
+          title
+        )
+      `)
       .eq('qr_code', cleanCode)
-      .eq('status', 'paid')
       .maybeSingle()
 
-    if (error || !order) {
+    if (error || !ticket || ticket.orders?.status !== 'paid') {
       setResult({ status: 'invalid', qrCode: cleanCode })
       setScanning(false)
       return
     }
 
-    if (order.used) {
+    if (ticket.used) {
       setResult({
         status: 'already_used',
-        firstName: order.first_name,
-        lastName: order.last_name,
-        eventTitle: order.events?.[0]?.title || 'Événement',
-        quantity: order.quantity,
+        firstName: ticket.orders?.first_name,
+        lastName: ticket.orders?.last_name,
+        eventTitle: ticket.events?.title || 'Événement',
+        quantity: 1,
         qrCode: cleanCode,
       })
       setScanning(false)
@@ -110,16 +120,16 @@ export default function ScannerPage() {
     }
 
     await supabase
-      .from('orders')
+      .from('tickets')
       .update({ used: true, used_at: new Date().toISOString() })
-      .eq('id', order.id)
+      .eq('id', ticket.id)
 
     setResult({
       status: 'valid',
-      firstName: order.first_name,
-      lastName: order.last_name,
-      eventTitle: order.events?.[0]?.title || 'Événement',
-      quantity: order.quantity,
+      firstName: ticket.orders?.first_name,
+      lastName: ticket.orders?.last_name,
+      eventTitle: ticket.events?.title || 'Événement',
+      quantity: 1,
       qrCode: cleanCode,
     })
     setScanning(false)
